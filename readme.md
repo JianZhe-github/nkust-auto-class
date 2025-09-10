@@ -16,7 +16,7 @@
 
 - `auto_select.py`：主程式
 - `course_list.txt`：每行一個課程代碼
-- `.env`：帳號密碼設定（或用 Docker `-e` 傳入）
+- `.env`：帳號密碼設定
 
 #### 帳號密碼設定說明
 
