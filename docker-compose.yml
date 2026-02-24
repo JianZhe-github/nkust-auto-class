@@ -1,0 +1,13 @@
+services:
+  nkust-auto-class:
+    container_name: nkust-auto-class
+    image: jianzhe61/nkust-auto-class:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - nkust_data:/data
+    shm_size: '2gb'
+    restart: unless-stopped
+
+volumes:
+  nkust_data:

@@ -1,18 +1,52 @@
-FROM python:3.11-slim
-
-# 安裝必要套件與 Chrome
-RUN apt-get update && \
-    apt-get install -y wget unzip cron \
-    && wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get install -y /tmp/chrome.deb \
-    && rm /tmp/chrome.deb \
-    && pip install selenium python-dotenv chromedriver-autoinstaller
-
-# 建立工作目錄
+FROM python:3.10-slim
 WORKDIR /app
 
-# 複製程式與需求檔
-COPY auto_select.py course_list.txt ./
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    gnupg \
+    unzip \
+    curl \
+    xvfb \
+    ca-certificates \
+    python3-tk \
+    python3-dev \
+    fonts-noto-cjk \
+    fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
 
-# 直接用 shell 迴圈每 5 分鐘執行一次
-CMD ["bash", "-c", "while true; do python3 /app/auto_select.py; sleep 300; done"]
+# Install Google Chrome Stable
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg  \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-linux-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ChromeDriver matching installed Chrome version (Chrome for Testing)
+RUN CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+') \
+    && wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip" \
+    && unzip chromedriver-linux64.zip \
+    && mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm -rf chromedriver-linux64.zip chromedriver-linux64
+
+# Install Python dependencies
+RUN pip install --no-cache-dir selenium \
+    selenium-stealth \
+    requests \
+    flask \
+    python-dotenv \
+    pyvirtualdisplay
+
+# Copy application code
+COPY . /app
+
+# Create data directory
+RUN mkdir -p /data && chmod 777 /data
+
+EXPOSE 5000
+
+# Make entrypoint executable
+RUN chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]
