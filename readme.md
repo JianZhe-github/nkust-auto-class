@@ -12,22 +12,7 @@
 
 ## 使用方式
 
-### 1. Python 執行
-
-- `auto_select.py`：主程式
-- `course_list.txt`：每行一個課程代碼
-- `.env`：帳號密碼設定
-
-#### 帳號密碼設定說明
-
-請將 `stack.env` 內容複製並修改為 `.env`，格式如下：
-
-```
-NKUST_USER=你的學號
-NKUST_PASS=你的密碼
-```
-
-### 2. Docker 部署
+### 1. Docker 部署
 
 #### 執行容器（每 5 分鐘自動執行）
 
