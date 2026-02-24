@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NKUST 自動加選 控制台</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body { background: #f8f9fa; }
+    .card { margin-bottom: 1.5rem; }
+    #toast-area { position: fixed; top: 1rem; right: 1rem; z-index: 9999; }
+    .badge-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  </style>
+</head>
+<body>
+<div id="toast-area"></div>
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+  <div class="container">
+    <span class="navbar-brand">🎓 NKUST 自動加選 控制台</span>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- ── 帳號密碼 ─────────────────────────────────────── -->
+  <div class="card shadow-sm">
+    <div class="card-header fw-bold">帳號密碼設定</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-5">
+          <label class="form-label">學號</label>
+          <input type="text" id="input-user" class="form-control" placeholder="例：1111415010" />
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">密碼</label>
+          <input type="password" id="input-pass" class="form-control" placeholder="輸入新密碼（留空則不更改）" />
+        </div>
+        <div class="col-md-2 d-flex align-items-end gap-2">
+          <button class="btn btn-outline-secondary w-100" onclick="testLogin()">測試</button>
+        </div>
+      </div>
+      <div id="test-result" class="mt-2 small"></div>
+    </div>
+  </div>
+
+  <!-- ── 輪詢設定 ─────────────────────────────────────── -->
+  <div class="card shadow-sm">
+    <div class="card-header fw-bold">輪詢設定</div>
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">輪詢間隔（秒）#建議不要低於60秒</label>
+          <input type="number" id="input-interval" class="form-control" min="10" placeholder="300" />
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary w-100" onclick="saveAll()">儲存設定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 課程代碼 ─────────────────────────────────────── -->
+  <div class="card shadow-sm">
+    <div class="card-header fw-bold">課程代碼列表</div>
+    <div class="card-body">
+      <div class="row g-2 mb-3">
+        <div class="col">
+          <input type="text" id="input-course" class="form-control" placeholder="輸入課程代碼，如 0404" />
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-success" onclick="addCourse()">新增</button>
+        </div>
+      </div>
+      <ul id="course-list" class="list-group"></ul>
+    </div>
+  </div>
+
+  <!-- ── 加選紀錄 ─────────────────────────────────────── -->
+  <div class="card shadow-sm">
+    <div class="card-header d-flex justify-content-between align-items-center fw-bold">
+      <span>加選紀錄</span>
+      <span class="text-muted small" id="status-updated"></span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped mb-0">
+          <thead class="table-dark">
+            <tr>
+              <th>時間</th>
+              <th>課程代碼</th>
+              <th>限修人數</th>
+              <th>已選人數</th>
+              <th>結果</th>
+            </tr>
+          </thead>
+          <tbody id="status-tbody">
+            <tr><td colspan="5" class="text-center text-muted py-3">尚無紀錄</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  let courses = [];
+
+  // ──────────── 初始化 ────────────
+  async function init() {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    document.getElementById('input-user').value = cfg.user || '';
+    document.getElementById('input-interval').value = cfg.interval || 300;
+    courses = cfg.courses || [];
+    renderCourses();
+    refreshStatus();
+  }
+
+  // ──────────── 課程列表 ────────────
+  function renderCourses() {
+    const ul = document.getElementById('course-list');
+    ul.innerHTML = '';
+    if (!courses.length) {
+      ul.innerHTML = '<li class="list-group-item text-muted">尚未新增課程</li>';
+      return;
+    }
+    courses.forEach((c, i) => {
+      const li = document.createElement('li');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      li.innerHTML = `<span>${c}</span><button class="btn btn-sm btn-outline-danger" onclick="removeCourse(${i})">刪除</button>`;
+      ul.appendChild(li);
+    });
+  }
+
+  function addCourse() {
+    const input = document.getElementById('input-course');
+    const val = input.value.trim();
+    if (!val) return;
+    if (courses.includes(val)) { showToast('已存在', 'warning'); return; }
+    courses.push(val);
+    input.value = '';
+    renderCourses();
+    saveAll();
+  }
+
+  function removeCourse(i) {
+    courses.splice(i, 1);
+    renderCourses();
+    saveAll();
+  }
+
+  // ──────────── 儲存設定 ────────────
+  async function saveAll() {
+    const body = {
+      user: document.getElementById('input-user').value.trim(),
+      interval: parseInt(document.getElementById('input-interval').value) || 300,
+      courses: courses,
+    };
+    const passVal = document.getElementById('input-pass').value;
+    if (passVal) body.pass = passVal;
+
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      showToast('設定已儲存', 'success');
+      if (passVal) document.getElementById('input-pass').value = '';
+    } else {
+      showToast(j.error || '儲存失敗', 'danger');
+    }
+  }
+
+  // ──────────── 測試登入 ────────────
+  async function testLogin() {
+    const user = document.getElementById('input-user').value.trim();
+    const pass = document.getElementById('input-pass').value;
+    if (!user || !pass) {
+      showToast('請填入學號與密碼才能測試', 'warning');
+      return;
+    }
+    const resultEl = document.getElementById('test-result');
+    resultEl.innerHTML = '<span class="text-muted">⏳ 測試中，請稍候（約 30～60 秒）...</span>';
+
+    const r = await fetch('/api/test-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, pass }),
+    });
+    const { job_id } = await r.json();
+
+    // Poll for result
+    const poll = setInterval(async () => {
+      const res = await fetch(`/api/test-login/${job_id}`).then(r => r.json());
+      if (res.status === 'done') {
+        clearInterval(poll);
+        if (res.result === 'ok') {
+          resultEl.innerHTML = `<span class="text-success fw-bold">✅ ${res.message}</span>`;
+        } else {
+          resultEl.innerHTML = `<span class="text-danger fw-bold">❌ ${res.message}</span>`;
+        }
+      }
+    }, 3000);
+  }
+
+  // ──────────── 加選紀錄 ────────────
+  async function refreshStatus() {
+    const rows = await fetch('/api/status').then(r => r.json());
+    const tbody = document.getElementById('status-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">尚無紀錄</td></tr>';
+    } else {
+      tbody.innerHTML = rows.map(row => {
+        const badge = row.result.includes('嘗試加選')
+          ? '<span class="badge bg-success">已嘗試加選</span>'
+          : row.result.includes('額滿')
+          ? '<span class="badge bg-danger">額滿</span>'
+          : `<span class="badge bg-secondary">${row.result}</span>`;
+        return `<tr>
+          <td>${row.time}</td>
+          <td>${row.course_id}</td>
+          <td>${row.precnt ?? '-'}</td>
+          <td>${row.selnum ?? '-'}</td>
+          <td>${badge}</td>
+        </tr>`;
+      }).join('');
+    }
+    document.getElementById('status-updated').textContent = '更新於 ' + new Date().toLocaleTimeString();
+  }
+
+  // ──────────── Toast ────────────
+  function showToast(msg, type = 'info') {
+    const id = 'toast-' + Date.now();
+    const div = document.createElement('div');
+    div.id = id;
+    div.className = `alert alert-${type} alert-dismissible fade show`;
+    div.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    document.getElementById('toast-area').appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+  }
+
+  // ──────────── 啟動 ────────────
+  init();
+  setInterval(refreshStatus, 5000);
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
