@@ -8,6 +8,8 @@ services:
       - nkust_data:/data
     shm_size: '2gb'
     restart: unless-stopped
+    environment:
+      - TZ=Asia/Taipei
 
 volumes:
   nkust_data:
