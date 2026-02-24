@@ -41,6 +41,7 @@
         </div>
       </div>
       <div id="test-result" class="mt-2 small"></div>
+      <div id="account-status" class="mt-3 alert alert-light d-flex justify-content-between align-items-center"></div>
     </div>
   </div>
 
@@ -82,7 +83,22 @@
       <span>加選紀錄</span>
       <span class="text-muted small" id="status-updated"></span>
     </div>
-    <div class="card-body p-0">
+    <div class="card-body">
+      <!-- 筛选和清除按钮 -->
+      <div class="row g-2 mb-3">
+        <div class="col-md-4">
+          <label class="form-label small">筛选</label>
+          <select id="filter-select" class="form-select form-select-sm" onchange="changeFilter()">
+            <option value="attempted">已嘗試加選</option>
+            <option value="all">顯示全部</option>
+            <option value="other">其他結果</option>
+          </select>
+        </div>
+        <div class="col-md-8 d-flex align-items-end gap-2">
+          <button class="btn btn-sm btn-outline-danger" onclick="clearAllStatus()">清除所有紀錄</button>
+        </div>
+      </div>
+      <!-- 数据表 -->
       <div class="table-responsive">
         <table class="table table-sm table-striped mb-0">
           <thead class="table-dark">
@@ -99,6 +115,8 @@
           </tbody>
         </table>
       </div>
+      <!-- 分页控件 -->
+      <div id="pagination-container" class="mt-3 text-center"></div>
     </div>
   </div>
 
@@ -106,6 +124,9 @@
 
 <script>
   let courses = [];
+  let currentPage = 1;
+  let currentFilter = 'attempted';
+  let totalPages = 1;
 
   // ──────────── 初始化 ────────────
   async function init() {
@@ -114,7 +135,25 @@
     document.getElementById('input-interval').value = cfg.interval || 300;
     courses = cfg.courses || [];
     renderCourses();
+    renderAccountStatus(cfg);
     refreshStatus();
+  }
+
+  // ──────────── 帳號狀態指示 ────────────
+  function renderAccountStatus(cfg) {
+    const statusEl = document.getElementById('account-status');
+    if (!cfg.test_status) {
+      statusEl.innerHTML = '<span class="text-muted">❌ 尚未驗證帳號</span>';
+      statusEl.className = 'mt-3 alert alert-warning d-flex justify-content-between align-items-center';
+    } else if (cfg.test_status === 'ok') {
+      const time = cfg.last_test_time ? `（${cfg.last_test_time}）` : '';
+      statusEl.innerHTML = `<span>✅ 帳號已驗證${time}</span>`;
+      statusEl.className = 'mt-3 alert alert-success d-flex justify-content-between align-items-center';
+    } else {
+      const time = cfg.last_test_time ? `（${cfg.last_test_time}）` : '';
+      statusEl.innerHTML = `<span>❌ 帳號驗證失敗${time}</span>`;
+      statusEl.className = 'mt-3 alert alert-danger d-flex justify-content-between align-items-center';
+    }
   }
 
   // ──────────── 課程列表 ────────────
@@ -199,21 +238,33 @@
         clearInterval(poll);
         if (res.result === 'ok') {
           resultEl.innerHTML = `<span class="text-success fw-bold">✅ ${res.message}</span>`;
+          // 重新載入帳號狀態
+          setTimeout(() => {
+            fetch('/api/config').then(r => r.json()).then(cfg => renderAccountStatus(cfg));
+          }, 1000);
         } else {
           resultEl.innerHTML = `<span class="text-danger fw-bold">❌ ${res.message}</span>`;
+          // 重新載入帳號狀態
+          setTimeout(() => {
+            fetch('/api/config').then(r => r.json()).then(cfg => renderAccountStatus(cfg));
+          }, 1000);
         }
       }
     }, 3000);
   }
 
   // ──────────── 加選紀錄 ────────────
-  async function refreshStatus() {
-    const rows = await fetch('/api/status').then(r => r.json());
+  async function refreshStatus(page = 1) {
+    currentPage = page;
+    const response = await fetch(`/api/status?page=${page}&limit=20&filter=${currentFilter}`).then(r => r.json());
+    const { records, total, pages, filter } = response;
+    totalPages = pages;
+
     const tbody = document.getElementById('status-tbody');
-    if (!rows.length) {
+    if (!records.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">尚無紀錄</td></tr>';
     } else {
-      tbody.innerHTML = rows.map(row => {
+      tbody.innerHTML = records.map(row => {
         const badge = row.result.includes('嘗試加選')
           ? '<span class="badge bg-success">已嘗試加選</span>'
           : row.result.includes('額滿')
@@ -228,7 +279,61 @@
         </tr>`;
       }).join('');
     }
+    
+    // 更新分頁控件
+    renderPagination(total, pages, page);
     document.getElementById('status-updated').textContent = '更新於 ' + new Date().toLocaleTimeString();
+  }
+
+  // 筛选器更改
+  function changeFilter() {
+    currentFilter = document.getElementById('filter-select').value;
+    currentPage = 1;
+    refreshStatus(1);
+  }
+
+  // 渲染分頁控件
+  function renderPagination(total, pages, currentPage) {
+    const container = document.getElementById('pagination-container');
+    if (pages <= 1) {
+      container.innerHTML = '';
+      return;
+    }
+
+    let html = `<small class="text-muted">共 ${total} 筆紀錄，第 ${currentPage} 頁，共 ${pages} 頁</small><br>`;
+    
+    if (currentPage > 1) {
+      html += `<button class="btn btn-sm btn-outline-primary" onclick="refreshStatus(${currentPage - 1})">← 上一頁</button> `;
+    }
+    
+    for (let i = Math.max(1, currentPage - 2); i <= Math.min(pages, currentPage + 2); i++) {
+      if (i === currentPage) {
+        html += `<button class="btn btn-sm btn-primary" disabled>${i}</button> `;
+      } else {
+        html += `<button class="btn btn-sm btn-outline-primary" onclick="refreshStatus(${i})">${i}</button> `;
+      }
+    }
+    
+    if (currentPage < pages) {
+      html += `<button class="btn btn-sm btn-outline-primary" onclick="refreshStatus(${currentPage + 1})">下一頁 →</button>`;
+    }
+    
+    container.innerHTML = html;
+  }
+
+  // 清除所有紀錄
+  async function clearAllStatus() {
+    if (!confirm('確定要清除所有加選紀錄嗎？此操作無法復原。')) {
+      return;
+    }
+    const r = await fetch('/api/status', { method: 'DELETE' });
+    if (r.ok) {
+      showToast('所有紀錄已清除', 'success');
+      currentPage = 1;
+      refreshStatus(1);
+    } else {
+      showToast('清除失敗', 'danger');
+    }
   }
 
   // ──────────── Toast ────────────
@@ -244,7 +349,7 @@
 
   // ──────────── 啟動 ────────────
   init();
-  setInterval(refreshStatus, 5000);
+  setInterval(() => refreshStatus(currentPage), 5000);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>

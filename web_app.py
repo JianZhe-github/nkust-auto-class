@@ -32,6 +32,8 @@ def load_config() -> dict:
         "pass": os.environ.get("NKUST_PASS", ""),
         "interval": int(os.environ.get("INTERVAL", "300")),
         "courses": [],
+        "last_test_time": None,
+        "test_status": None,
     }
 
 
@@ -87,9 +89,46 @@ def set_config():
     return jsonify({"ok": True})
 
 
-@app.route("/api/status", methods=["GET"])
-def get_status():
-    return jsonify(load_status())
+@app.route("/api/status", methods=["GET", "DELETE"])
+def manage_status():
+    if request.method == "GET":
+        all_records = load_status()
+        
+        # 获取分页和筛选参数
+        page = max(1, int(request.args.get("page", 1)))
+        limit = min(100, max(1, int(request.args.get("limit", 20))))
+        filter_type = request.args.get("filter", "attempted")  # all / attempted / other
+        
+        # 筛选数据
+        if filter_type == "attempted":
+            records = [r for r in all_records if "嘗試加選" in r.get("result", "")]
+        elif filter_type == "other":
+            records = [r for r in all_records if "嘗試加選" not in r.get("result", "")]
+        else:  # all
+            records = all_records
+        
+        total = len(records)
+        pages = (total + limit - 1) // limit
+        start = (page - 1) * limit
+        end = start + limit
+        
+        return jsonify({
+            "records": records[start:end],
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "filter": filter_type,
+        })
+    
+    elif request.method == "DELETE":
+        # 清除所有加选记录
+        try:
+            os.makedirs(os.path.dirname(STATUS_PATH), exist_ok=True)
+            with open(STATUS_PATH, "w", encoding="utf-8") as f:
+                json.dump([], f)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 # ──────────────────── test-login ─────────────────────────
@@ -202,6 +241,14 @@ def test_login_result(job_id):
     job = _test_jobs.get(job_id)
     if job is None:
         return jsonify({"error": "找不到工作"}), 404
+    
+    # 如果测试完成，更新 config 中的测试状态
+    if job.get("status") == "done":
+        cfg = load_config()
+        cfg["last_test_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cfg["test_status"] = "ok" if job.get("result") == "ok" else "fail"
+        save_config(cfg)
+    
     return jsonify(job)
 
 
